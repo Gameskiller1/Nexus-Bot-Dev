@@ -15,7 +15,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 database.init_db()
-
+database.init_role_tags_table()
 
 @bot.event
 async def on_ready():
