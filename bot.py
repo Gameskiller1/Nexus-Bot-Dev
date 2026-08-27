@@ -27,7 +27,7 @@ database.init_role_tags_table()
 #
 # Landscape/wide GIFs (roughly 16:9 or wider) look best in embeds.
 # ============================================================
-GALAXY_GIF_URL = "https://media1.tenor.com/m/Eh29GgC7YqEAAAAd/background-purple.gif"
+GALAXY_GIF_URL = "https://c.tenor.com/Eh29GgC7YqEAAAAd/tenor.gif"
 
 def apply_galaxy_theme(embed: discord.Embed) -> discord.Embed:
     """Attach the animated galaxy background image to an embed."""
