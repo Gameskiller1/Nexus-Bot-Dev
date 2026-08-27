@@ -17,6 +17,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 database.init_db()
 database.init_role_tags_table()
 
+# ============================================================
+# GALAXY THEME CONFIG
+# ------------------------------------------------------------
+# To change the animated background, just replace the URL below
+# with a link to any other GIF (must end in .gif and be a direct
+# link, e.g. from Tenor/Giphy/Discord CDN — right click the GIF
+# and "Copy Image Address" to get a direct link).
+#
+# Landscape/wide GIFs (roughly 16:9 or wider) look best in embeds.
+# ============================================================
+GALAXY_GIF_URL = "https://media1.tenor.com/m/Eh29GgC7YqEAAAAd/background-purple.gif"
+
+def apply_galaxy_theme(embed: discord.Embed) -> discord.Embed:
+    """Attach the animated galaxy background image to an embed."""
+    embed.set_image(url=GALAXY_GIF_URL)
+    return embed
+# ============================================================
+
+
 @bot.event
 async def on_ready():
     await bot.tree.sync()
@@ -66,6 +85,7 @@ async def sync_member_tags(member: discord.Member):
         except discord.Forbidden:
             pass  # bot's role is below the member's top role, or missing permission
 
+
 @bot.tree.command(name="np", description="Give Nexus Points to a user")
 @app_commands.describe(user="The user to give NP to", amount="Amount of NP to give")
 @is_mod()
@@ -105,6 +125,7 @@ async def stats(interaction: discord.Interaction, user: discord.Member = None):
         color=discord.Color.blurple()
     )
     embed.set_thumbnail(url=target.display_avatar.url)
+    apply_galaxy_theme(embed)  # <-- galaxy background added here
     await interaction.response.send_message(embed=embed)
 
 
@@ -131,7 +152,9 @@ async def leaderboard(interaction: discord.Interaction):
         description="\n".join(lines),
         color=discord.Color.gold()
     )
+    apply_galaxy_theme(embed)  # <-- galaxy background added here
     await interaction.response.send_message(embed=embed)
+
 
 @bot.tree.command(name="promote", description="Promote a user by swapping roles")
 @app_commands.describe(user="The user to promote", newrole="Role to add", oldrole="Role to remove")
@@ -149,8 +172,10 @@ async def promote(interaction: discord.Interaction, user: discord.Member, newrol
         description=f"{user.mention} has been promoted from **{oldrole.name}** to **{newrole.name}**.",
         color=discord.Color.blurple()
     )
+    apply_galaxy_theme(embed)  # <-- galaxy background added here
     await interaction.response.send_message(embed=embed)
-    
+
+
 tag_group = app_commands.Group(name="tag", description="Manage automatic role tags")
 
 @tag_group.command(name="set", description="Assign a tag to a role (members with this role get the tag in their nickname)")
