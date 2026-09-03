@@ -329,30 +329,6 @@ async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Ra
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@rank_group.command(name="remove", description="Delete a rank")
-@app_commands.describe(rank_id="The ID of the rank to remove")
-@is_mod()
-async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Range[int, 1, None]):
-    ranks = database.get_ranks()
-    rank_to_delete = None
-    for rid, rname, threshold, role_id in ranks:
-        if rid == rank_id:
-            rank_to_delete = (rid, rname, threshold, role_id)
-            break
-    
-    if not rank_to_delete:
-        await interaction.response.send_message(f"Rank with ID {rank_id} not found.", ephemeral=True)
-        return
-    
-    database.delete_rank(rank_id)
-    embed = discord.Embed(
-        title="✅ Rank Deleted",
-        description=f"Deleted rank **{rank_to_delete[1]}** (ID: {rank_id})",
-        color=discord.Color.red()
-    )
-    apply_galaxy_theme(embed)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
 # ============================================================
 # STARTUP ROLES COMMANDS
 # ============================================================
@@ -438,7 +414,7 @@ async def startup_role_sync(interaction: discord.Interaction):
         embed.add_field(name="Failed", value=f"{failed} members (permissions issue)", inline=False)
     apply_galaxy_theme(embed)
     await interaction.followup.send(embed=embed, ephemeral=True)
-    
+
 # ============================================================
 # AWARDS COMMANDS (SIMPLIFIED - Role-based only)
 # ============================================================
