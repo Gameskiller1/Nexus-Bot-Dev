@@ -305,6 +305,54 @@ async def rank_list(interaction: discord.Interaction):
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@rank_group.command(name="remove", description="Delete a rank")
+@app_commands.describe(rank_id="The ID of the rank to remove")
+@is_mod()
+async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Range[int, 1, None]):
+    ranks = database.get_ranks()
+    rank_to_delete = None
+    for rid, rname, threshold, role_id in ranks:
+        if rid == rank_id:
+            rank_to_delete = (rid, rname, threshold, role_id)
+            break
+    
+    if not rank_to_delete:
+        await interaction.response.send_message(f"Rank with ID {rank_id} not found.", ephemeral=True)
+        return
+    
+    database.delete_rank(rank_id)
+    embed = discord.Embed(
+        title="✅ Rank Deleted",
+        description=f"Deleted rank **{rank_to_delete[1]}** (ID: {rank_id})",
+        color=discord.Color.red()
+    )
+    apply_galaxy_theme(embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@rank_group.command(name="remove", description="Delete a rank")
+@app_commands.describe(rank_id="The ID of the rank to remove")
+@is_mod()
+async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Range[int, 1, None]):
+    ranks = database.get_ranks()
+    rank_to_delete = None
+    for rid, rname, threshold, role_id in ranks:
+        if rid == rank_id:
+            rank_to_delete = (rid, rname, threshold, role_id)
+            break
+    
+    if not rank_to_delete:
+        await interaction.response.send_message(f"Rank with ID {rank_id} not found.", ephemeral=True)
+        return
+    
+    database.delete_rank(rank_id)
+    embed = discord.Embed(
+        title="✅ Rank Deleted",
+        description=f"Deleted rank **{rank_to_delete[1]}** (ID: {rank_id})",
+        color=discord.Color.red()
+    )
+    apply_galaxy_theme(embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 # ============================================================
 # STARTUP ROLES COMMANDS
 # ============================================================
@@ -349,6 +397,48 @@ async def startup_role_list(interaction: discord.Interaction):
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@startup_group.command(name="sync", description="Apply startup roles to all existing members")
+@is_mod()
+async def startup_role_sync(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    
+    startup_roles = database.get_startup_roles()
+    if not startup_roles:
+        await interaction.followup.send("No startup roles configured.", ephemeral=True)
+        return
+    
+    roles_to_add = [interaction.guild.get_role(role_id) for role_id in startup_roles]
+    roles_to_add = [r for r in roles_to_add if r is not None]
+    
+    if not roles_to_add:
+        await interaction.followup.send("No valid startup roles found.", ephemeral=True)
+        return
+    
+    count = 0
+    failed = 0
+    for member in interaction.guild.members:
+        if member.bot:
+            continue
+        
+        # Only add roles they don't already have
+        roles_needed = [r for r in roles_to_add if r not in member.roles]
+        if roles_needed:
+            try:
+                await member.add_roles(*roles_needed)
+                count += 1
+            except discord.Forbidden:
+                failed += 1
+    
+    embed = discord.Embed(
+        title="✅ Startup Roles Synced",
+        description=f"Applied startup roles to {count} members",
+        color=discord.Color.green()
+    )
+    if failed > 0:
+        embed.add_field(name="Failed", value=f"{failed} members (permissions issue)", inline=False)
+    apply_galaxy_theme(embed)
+    await interaction.followup.send(embed=embed, ephemeral=True)
+    
 # ============================================================
 # AWARDS COMMANDS (SIMPLIFIED - Role-based only)
 # ============================================================

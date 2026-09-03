@@ -181,6 +181,13 @@ def get_user_rank(user_id: int):
     conn.close()
     return result[0] if result else None
 
+def delete_rank(rank_id: int):
+    """Delete a rank by ID."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM ranks WHERE rank_id = ?", (rank_id,))
+    conn.commit()
+    conn.close()
 # ============================================================
 # STARTUP ROLES
 # ============================================================
