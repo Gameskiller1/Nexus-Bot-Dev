@@ -18,8 +18,9 @@ database.init_db()
 database.init_role_tags_table()
 database.init_ranking_table()
 database.init_user_ranks_table()
+database.init_awards_table()
+database.init_user_awards_table()
 database.init_startup_roles_table()
-database.init_award_history_table()
 
 # ============================================================
 # GALAXY THEME CONFIG
@@ -27,28 +28,36 @@ database.init_award_history_table()
 GALAXY_GIF_URL = "https://c.tenor.com/Eh29GgC7YqEAAAAd/tenor.gif"
 
 def apply_galaxy_theme(embed: discord.Embed) -> discord.Embed:
+    """Attach the animated galaxy background image to an embed."""
     embed.set_image(url=GALAXY_GIF_URL)
     return embed
 
+
 # ============================================================
-# CONFIG
+# CONFIG: Customize these for your server
 # ============================================================
-WELCOME_CHANNEL_ID = None
+WELCOME_CHANNEL_ID = None  # Set to your welcome channel ID for join messages
+DEFAULT_STARTUP_ROLES = []  # Role IDs to assign on join (set these in Discord or use /startup-role add)
+DEFAULT_AWARDS = [] # List of default awards to give on join (set these in Discord or use /award create)
+# ============================================================
+
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
     print(f"Logged in as {bot.user} — slash commands synced.")
-    if not auto_rank_members.is_running():
-        auto_rank_members.start()
+    await auto_rank_members.start()
+
 
 @bot.event
 async def on_member_join(member: discord.Member):
+    """Assign startup roles and give first award when member joins."""
     if member.bot:
         return
-
+    
     database.ensure_user(member.id)
-
+    
+    # Assign startup roles
     startup_roles = database.get_startup_roles()
     if startup_roles:
         roles_to_add = [member.guild.get_role(role_id) for role_id in startup_roles]
@@ -58,7 +67,11 @@ async def on_member_join(member: discord.Member):
                 await member.add_roles(*roles_to_add)
             except discord.Forbidden:
                 print(f"Could not assign roles to {member} — insufficient permissions")
-
+    
+    # Award "First Steps"
+    database.award_to_user(member.id, "First Steps")
+    
+    # Send welcome message
     if WELCOME_CHANNEL_ID:
         channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
         if channel:
@@ -74,30 +87,35 @@ async def on_member_join(member: discord.Member):
             except discord.Forbidden:
                 pass
 
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     if before.roles != after.roles:
         await sync_member_tags(after)
 
+
 @tasks.loop(minutes=1)
 async def auto_rank_members():
+    """Check all members and auto-rank them if they qualify."""
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
                 continue
-
+            
             np_amount = database.get_np(member.id)
             rank_info = database.get_appropriate_rank(np_amount)
-
+            
             if not rank_info:
                 continue
-
+            
             rank_id, rank_name, role_id = rank_info
             current_rank = database.get_user_rank(member.id)
-
+            
             if current_rank != rank_id:
+                # Update user's rank
                 database.set_user_rank(member.id, rank_id)
-
+                
+                # Remove old rank roles and add new one
                 for rank_data in database.get_ranks():
                     old_role = guild.get_role(rank_data[3])
                     if old_role and old_role in member.roles:
@@ -105,23 +123,28 @@ async def auto_rank_members():
                             await member.remove_roles(old_role)
                         except discord.Forbidden:
                             pass
-
+                
+                # Add new rank role
                 new_role = guild.get_role(role_id)
                 if new_role and new_role not in member.roles:
                     try:
                         await member.add_roles(new_role)
                     except discord.Forbidden:
                         pass
-
+                
+                # Sync tags
                 await sync_member_tags(member)
-
+                
+                # Send rank-up message
                 try:
                     embed = discord.Embed(
-                        title="🎉 Rank Up!",
+                        title=f"🎉 Rank Up!",
                         description=f"{member.mention} advanced to **{rank_name}**!",
                         color=discord.Color.gold()
                     )
                     apply_galaxy_theme(embed)
+                    
+                    # Try to find a general or announcements channel
                     for channel in guild.text_channels:
                         if channel.permissions_for(guild.me).send_messages:
                             await channel.send(embed=embed)
@@ -129,17 +152,22 @@ async def auto_rank_members():
                 except Exception as e:
                     print(f"Error sending rank-up message: {e}")
 
+
 def is_mod():
+    """Restrict command to users with Manage Server permission."""
     def predicate(interaction: discord.Interaction) -> bool:
         return interaction.user.guild_permissions.manage_guild
     return app_commands.check(predicate)
 
+
 TAG_PATTERN = re.compile(r"^(\[.*?\])+\s*")
 
 def strip_tags(name: str) -> str:
+    """Remove any existing [tag] prefixes from a name."""
     return TAG_PATTERN.sub("", name).strip()
 
 async def sync_member_tags(member: discord.Member):
+    """Rebuild a member's nickname based on tags attached to their roles."""
     if member.bot:
         return
 
@@ -148,7 +176,11 @@ async def sync_member_tags(member: discord.Member):
     tags = [role_tags[r.id] for r in member_roles_sorted if r.id in role_tags]
 
     base_name = strip_tags(member.nick or member.display_name)
-    new_nick = f"{''.join(tags)} {base_name}" if tags else base_name
+    if tags:
+        new_nick = f"{''.join(tags)} {base_name}"
+    else:
+        new_nick = base_name
+
     new_nick = new_nick[:32]
 
     if member.nick != new_nick and new_nick != member.name:
@@ -156,6 +188,7 @@ async def sync_member_tags(member: discord.Member):
             await member.edit(nick=new_nick)
         except discord.Forbidden:
             pass
+
 
 # ============================================================
 # NP COMMANDS
@@ -175,6 +208,7 @@ async def np(interaction: discord.Interaction, user: discord.Member, amount: app
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
 
+
 @bot.tree.command(name="removenp", description="Remove Nexus Points from a user")
 @app_commands.describe(user="The user to remove NP from", amount="Amount of NP to remove")
 @is_mod()
@@ -189,40 +223,27 @@ async def removenp(interaction: discord.Interaction, user: discord.Member, amoun
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
 
+
 @bot.tree.command(name="stats", description="Check your or another user's Nexus Points")
 @app_commands.describe(user="(Optional) check another user's stats")
 async def stats(interaction: discord.Interaction, user: discord.Member = None):
     target = user or interaction.user
     balance = database.get_np(target.id)
-    current_rank_id = database.get_user_rank(target.id)
+    
+    # Get user's awards
     awards = database.get_user_awards(target.id)
-
-    rank_name = "None"
-    if current_rank_id:
-        for rid, rname, threshold, role_id in database.get_ranks():
-            if rid == current_rank_id:
-                rank_name = rname
-                break
-
-    award_lines = []
-    for role_id, np_bonus, awarded_at in awards:
-        role = interaction.guild.get_role(role_id)
-        role_name = role.mention if role else f"Unknown Role ({role_id})"
-        bonus_text = f" | +{np_bonus} NP" if np_bonus else ""
-        award_lines.append(f"• {role_name}{bonus_text}")
-
-    award_str = "\n".join(award_lines) if award_lines else "None yet"
-
+    award_str = " ".join([f"{a[2]} {a[1]}" for a in awards]) if awards else "None yet"
+    
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
         color=discord.Color.blurple()
     )
     embed.add_field(name="Nexus Points", value=f"**{balance} NP**", inline=False)
-    embed.add_field(name="Current Rank", value=rank_name, inline=False)
     embed.add_field(name="Awards", value=award_str, inline=False)
     embed.set_thumbnail(url=target.display_avatar.url)
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
+
 
 @bot.tree.command(name="leaderboard", description="Show the Nexus Points leaderboard")
 async def leaderboard(interaction: discord.Interaction):
@@ -250,15 +271,40 @@ async def leaderboard(interaction: discord.Interaction):
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
 
+
 # ============================================================
 # PROMOTE/RANK COMMANDS
+# ============================================================
+
+@bot.tree.command(name="promote", description="Promote a user by swapping roles")
+@app_commands.describe(user="The user to promote", newrole="Role to add", oldrole="Role to remove")
+@is_mod()
+async def promote(interaction: discord.Interaction, user: discord.Member, newrole: discord.Role, oldrole: discord.Role):
+    if oldrole in user.roles:
+        await user.remove_roles(oldrole)
+    if newrole not in user.roles:
+        await user.add_roles(newrole)
+
+    await sync_member_tags(user)
+
+    embed = discord.Embed(
+        title="🎉 Promotion!",
+        description=f"{user.mention} has been promoted from **{oldrole.name}** to **{newrole.name}**.",
+        color=discord.Color.blurple()
+    )
+    apply_galaxy_theme(embed)
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================================================
+# RANKING SYSTEM COMMANDS
 # ============================================================
 
 rank_group = app_commands.Group(name="rank", description="Manage ranks and auto-ranking")
 
 @rank_group.command(name="add", description="Create a new rank milestone")
 @app_commands.describe(
-    name="Rank name",
+    name="Rank name (e.g., 'Bronze')",
     np_threshold="NP required to reach this rank",
     role="Role to assign at this rank"
 )
@@ -273,22 +319,24 @@ async def rank_add(interaction: discord.Interaction, name: str, np_threshold: ap
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
 @rank_group.command(name="list", description="Show all ranks")
 async def rank_list(interaction: discord.Interaction):
     ranks = database.get_ranks()
     if not ranks:
         await interaction.response.send_message("No ranks configured.", ephemeral=True)
         return
-
+    
     lines = []
     for rank_id, name, threshold, role_id in ranks:
         role = interaction.guild.get_role(role_id)
         role_mention = role.mention if role else f"Unknown Role ({role_id})"
         lines.append(f"**{name}** — {threshold} NP → {role_mention}")
-
+    
     embed = discord.Embed(title="📊 Rank System", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 # ============================================================
 # STARTUP ROLES COMMANDS
@@ -309,6 +357,7 @@ async def startup_role_add(interaction: discord.Interaction, role: discord.Role)
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
 @startup_group.command(name="remove", description="Remove a startup role")
 @app_commands.describe(role="The role to remove from startup assignment")
 @is_mod()
@@ -322,95 +371,97 @@ async def startup_role_remove(interaction: discord.Interaction, role: discord.Ro
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
 @startup_group.command(name="list", description="Show all startup roles")
 async def startup_role_list(interaction: discord.Interaction):
     role_ids = database.get_startup_roles()
     if not role_ids:
         await interaction.response.send_message("No startup roles configured.", ephemeral=True)
         return
-
+    
     lines = [f"• {interaction.guild.get_role(rid).mention}" for rid in role_ids if interaction.guild.get_role(rid)]
     embed = discord.Embed(title="📋 Startup Roles", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
 # ============================================================
 # AWARDS COMMANDS
 # ============================================================
 
-award_group = app_commands.Group(name="award", description="Give role-based awards")
+awards_group = app_commands.Group(name="award", description="Manage awards and badges")
 
-@award_group.command(name="give", description="Give a role-based award to a user")
-@app_commands.describe(user="User to award", role="Award role to give", np_bonus="Optional NP bonus")
+@awards_group.command(name="create", description="Create a new award type")
+@app_commands.describe(name="Award name", emoji="Emoji for the award", description_text="Description")
 @is_mod()
-async def award_give(interaction: discord.Interaction, user: discord.Member, role: discord.Role, np_bonus: app_commands.Range[int, 0, 1000000] = 0):
-    try:
-        if role not in user.roles:
-            await user.add_roles(role)
-    except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to add that role.", ephemeral=True)
-        return
-
-    database.award_role_to_user(user.id, role.id, np_bonus=np_bonus)
-
+async def award_create(interaction: discord.Interaction, name: str, emoji: str = "🏆", description_text: str = ""):
+    database.add_award_type(name, emoji, description_text)
     embed = discord.Embed(
-        title="🎉 Award Granted!",
-        description=f"{user.mention} received {role.mention}",
+        title="✅ Award Created",
+        description=f"{emoji} **{name}**\n{description_text}",
         color=discord.Color.gold()
     )
-    if np_bonus:
-        embed.add_field(name="NP Bonus", value=f"+{np_bonus} NP", inline=False)
-        embed.add_field(name="New Balance", value=f"{database.get_np(user.id)} NP", inline=False)
     apply_galaxy_theme(embed)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@award_group.command(name="remove", description="Remove a role-based award from a user")
-@app_commands.describe(user="User to remove award from", role="Award role to remove")
+
+@awards_group.command(name="give", description="Give an award to a user")
+@app_commands.describe(user="User to award", award="Name of the award")
 @is_mod()
-async def award_remove(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
-    try:
-        if role in user.roles:
-            await user.remove_roles(role)
-    except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to remove that role.", ephemeral=True)
+async def award_give(interaction: discord.Interaction, user: discord.Member, award: str):
+    success = database.award_to_user(user.id, award)
+    if success:
+        awards = database.get_all_awards()
+        award_info = next((a for a in awards if a[1] == award), None)
+        emoji = award_info[2] if award_info else "🏆"
+        
+        embed = discord.Embed(
+            title="🎉 Award Granted!",
+            description=f"{user.mention} received the **{emoji} {award}** award!",
+            color=discord.Color.gold()
+        )
+        apply_galaxy_theme(embed)
+        await interaction.response.send_message(embed=embed)
+    else:
+        await interaction.response.send_message(f"Award '{award}' not found or user already has it.", ephemeral=True)
+
+
+@awards_group.command(name="list", description="Show all available awards")
+async def award_list(interaction: discord.Interaction):
+    awards = database.get_all_awards()
+    if not awards:
+        await interaction.response.send_message("No awards configured.", ephemeral=True)
         return
-
-    embed = discord.Embed(
-        title="✅ Award Removed",
-        description=f"Removed {role.mention} from {user.mention}.",
-        color=discord.Color.orange()
-    )
+    
+    lines = [f"{a[2]} **{a[1]}** — {a[3]}" for a in awards]
+    embed = discord.Embed(title="🏆 Available Awards", description="\n".join(lines), color=discord.Color.gold())
     apply_galaxy_theme(embed)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@award_group.command(name="list", description="Show a user's awards")
+
+@awards_group.command(name="view", description="View awards for a user")
 @app_commands.describe(user="User to check")
-async def award_list(interaction: discord.Interaction, user: discord.Member = None):
+async def award_view(interaction: discord.Interaction, user: discord.Member = None):
     target = user or interaction.user
     awards = database.get_user_awards(target.id)
-
+    
     if not awards:
-        await interaction.response.send_message(f"{target.mention} has no recorded awards.", ephemeral=True)
+        await interaction.response.send_message(f"{target.mention} hasn't earned any awards yet.", ephemeral=True)
         return
-
-    lines = []
-    for role_id, np_bonus, awarded_at in awards:
-        role = interaction.guild.get_role(role_id)
-        role_name = role.mention if role else f"Unknown Role ({role_id})"
-        bonus = f" | +{np_bonus} NP" if np_bonus else ""
-        lines.append(f"• {role_name}{bonus}")
-
+    
+    award_display = "\n".join([f"{a[2]} {a[1]}" for a in awards])
     embed = discord.Embed(
         title=f"{target.display_name}'s Awards",
-        description="\n".join(lines),
+        description=award_display,
         color=discord.Color.gold()
     )
     embed.set_thumbnail(url=target.display_avatar.url)
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
 
+
 # ============================================================
-# TAG COMMANDS
+# TAG COMMANDS (Original)
 # ============================================================
 
 tag_group = app_commands.Group(name="tag", description="Manage automatic role tags")
@@ -454,6 +505,7 @@ async def tag_sync(interaction: discord.Interaction):
         count += 1
     await interaction.followup.send(f"✅ Synced tags for {count} members.", ephemeral=True)
 
+
 # ============================================================
 # ERROR HANDLERS
 # ============================================================
@@ -462,17 +514,10 @@ async def tag_sync(interaction: discord.Interaction):
 @removenp.error
 @rank_add.error
 @startup_role_add.error
+@award_create.error
 @award_give.error
-@award_remove.error
 @tag_set.error
 async def perm_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-    else:
-        raise error
-
-@promote.error
-async def promote_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
     else:
@@ -485,6 +530,6 @@ async def promote_error(interaction: discord.Interaction, error):
 bot.tree.add_command(tag_group)
 bot.tree.add_command(rank_group)
 bot.tree.add_command(startup_group)
-bot.tree.add_command(award_group)
+bot.tree.add_command(awards_group)
 
 bot.run(TOKEN)
