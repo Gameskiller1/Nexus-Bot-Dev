@@ -113,42 +113,70 @@ def init_ranking_table():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
-        CREATE TABLE IF NOT EXISTS ranks (
-            rank_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rank_name TEXT NOT NULL UNIQUE,
-            np_threshold INTEGER NOT NULL,
-            role_id INTEGER NOT NULL,
-            position INTEGER NOT NULL DEFAULT 0
-        )
-    """)
+    CREATE TABLE IF NOT EXISTS ranks (
+        rank_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rank_name TEXT NOT NULL UNIQUE,
+        np_threshold INTEGER NOT NULL,
+        role_id INTEGER NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        obtainable INTEGER NOT NULL DEFAULT 1
+    )
+""")
+    
     conn.commit()
     conn.close()
+    
 
-def add_rank(rank_name: str, np_threshold: int, role_id: int, position: int = 0):
+def add_rank(rank_name: str, np_threshold: int, role_id: int, position: int = 0, obtainable: int = 1):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO ranks (rank_name, np_threshold, role_id, position) VALUES (?, ?, ?, ?)",
-        (rank_name, np_threshold, role_id, position)
-    )
+        "INSERT INTO ranks (rank_name, np_threshold, role_id, position, obtainable) VALUES (?, ?, ?, ?, ?)",
+        (rank_name, np_threshold, role_id, position, obtainable)
+    )  # <- This was missing
     conn.commit()
     conn.close()
 
 def get_ranks():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT rank_id, rank_name, np_threshold, role_id FROM ranks ORDER BY np_threshold ASC")
+    c.execute("SELECT rank_id, rank_name, np_threshold, role_id, obtainable FROM ranks ORDER BY np_threshold ASC")
     result = c.fetchall()
     conn.close()
     return result
 
-def get_appropriate_rank(np_amount: int):
+def get_appropriate_rank(np_amount: int, auto_only: bool = False):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute(
-        "SELECT rank_id, rank_name, role_id FROM ranks WHERE np_threshold <= ? ORDER BY np_threshold DESC LIMIT 1",
-        (np_amount,)
-    )
+    
+    if auto_only:
+        c.execute(
+            "SELECT rank_id, rank_name, role_id, obtainable FROM ranks WHERE np_threshold <= ? AND obtainable = 1 ORDER BY np_threshold DESC LIMIT 1",
+            (np_amount,)
+        )
+    else:
+        c.execute(
+            "SELECT rank_id, rank_name, role_id, obtainable FROM ranks WHERE np_threshold <= ? ORDER BY np_threshold DESC LIMIT 1",
+            (np_amount,)
+        )
+    result = c.fetchone()
+    conn.close()
+    return result
+
+def get_rank_by_name(rank_name: str):
+    """Retrieve a rank by its name."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rank_id, rank_name, np_threshold, role_id, obtainable FROM ranks WHERE rank_name = ?", (rank_name,))
+    result = c.fetchone()
+    conn.close()
+    return result
+
+def get_rank_by_id(rank_id: int):
+    """Retrieve a rank by its ID."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rank_id, rank_name, np_threshold, role_id, obtainable FROM ranks WHERE rank_id = ?", (rank_id,))
     result = c.fetchone()
     conn.close()
     return result

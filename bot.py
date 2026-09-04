@@ -93,19 +93,28 @@ async def auto_rank_members():
                 continue
             
             np_amount = database.get_np(member.id)
-            rank_info = database.get_appropriate_rank(np_amount)
+            # CHANGE: Only get ranks marked as auto-obtainable
+            rank_info = database.get_appropriate_rank(np_amount, auto_only=True)
             
             if not rank_info:
                 continue
             
-            rank_id, rank_name, role_id = rank_info
-            current_rank = database.get_user_rank(member.id)
+            rank_id, rank_name, role_id, obtainable = rank_info  # CHANGE: 4 values now
+            current_rank_id = database.get_user_rank(member.id)
             
-            if current_rank != rank_id:
+            # CHANGE: Check if new rank is actually HIGHER than current
+            if current_rank_id != rank_id:
+                current_rank_info = database.get_rank_by_id(current_rank_id) if current_rank_id else None
+                new_rank_threshold = database.get_rank_by_id(rank_id)[2]
+                current_rank_threshold = current_rank_info[2] if current_rank_info else -1
+                
+                if new_rank_threshold <= current_rank_threshold:
+                    continue  # Don't demote
+                
                 # Update user's rank
                 database.set_user_rank(member.id, rank_id)
                 
-                # Remove old rank roles and add new one
+                # CHANGE: Remove ALL old rank roles, not just lower ones
                 for rank_data in database.get_ranks():
                     old_role = guild.get_role(rank_data[3])
                     if old_role and old_role in member.roles:
@@ -125,7 +134,7 @@ async def auto_rank_members():
                 # Sync tags
                 await sync_member_tags(member)
                 
-                # Send rank-up message to configured channel
+                # Send rank-up message
                 try:
                     embed = discord.Embed(
                         title="🎉 Rank Up!",
@@ -134,14 +143,12 @@ async def auto_rank_members():
                     )
                     apply_galaxy_theme(embed)
                     
-                    # Get configured channel
                     autopromo_channel_id = database.get_config("autopromo_channel_id")
                     if autopromo_channel_id:
                         channel = guild.get_channel(int(autopromo_channel_id))
                         if channel and channel.permissions_for(guild.me).send_messages:
                             await channel.send(embed=embed)
                     else:
-                        # Fallback: find first available text channel
                         for channel in guild.text_channels:
                             if channel.permissions_for(guild.me).send_messages:
                                 await channel.send(embed=embed)
@@ -237,10 +244,9 @@ async def stats(interaction: discord.Interaction, user: discord.Member = None):
 
     rank_name = "None"
     if current_rank_id:
-        for rid, rname, threshold, role_id in database.get_ranks():
-            if rid == current_rank_id:
-                rank_name = rname
-                break
+        rank_data = database.get_rank_by_id(current_rank_id)  # USE THIS
+        if rank_data:
+            rank_name = rank_data[1]
 
     award_lines = []
     for role_id, np_bonus, awarded_at in awards:
@@ -298,16 +304,19 @@ rank_group = app_commands.Group(name="rank", description="Manage ranks and auto-
 @app_commands.describe(
     name="Rank name",
     np_threshold="NP required to reach this rank",
-    role="Role to assign at this rank"
+    role="Role to assign at this rank",
+    obtainable="Can this rank be obtained via auto-promotion? (True for auto, False for manual/applications)"
 )
 @is_mod()
-async def rank_add(interaction: discord.Interaction, name: str, np_threshold: app_commands.Range[int, 0, 1000000], role: discord.Role):
-    database.add_rank(name, np_threshold, role.id)
+async def rank_add(interaction: discord.Interaction, name: str, np_threshold: app_commands.Range[int, 0, 1000000], role: discord.Role, obtainable: bool = True):
+    database.add_rank(name, np_threshold, role.id, obtainable=obtainable)
     ranks = database.get_ranks()
     created = next((r for r in ranks if r[1] == name), None)
+    
+    rank_type = "🟢 Auto" if obtainable else "🔴 Manual"
     embed = discord.Embed(
         title="✅ Rank Created",
-        description=f"**{name}** requires **{np_threshold} NP** and grants {role.mention}\nRank ID: **{created[0] if created else 'N/A'}**",
+        description=f"**{name}** requires **{np_threshold} NP** and grants {role.mention}\nType: {rank_type}\nRank ID: **{created[0] if created else 'N/A'}**",
         color=discord.Color.green()
     )
     apply_galaxy_theme(embed)
@@ -321,10 +330,11 @@ async def rank_list(interaction: discord.Interaction):
         return
 
     lines = []
-    for rank_id, name, threshold, role_id in ranks:
+    for rank_id, name, threshold, role_id, obtainable in ranks:  # CHANGE: Added obtainable
         role = interaction.guild.get_role(role_id)
         role_mention = role.mention if role else f"Unknown Role ({role_id})"
-        lines.append(f"**#{rank_id}** | **{name}** — {threshold} NP → {role_mention}")
+        rank_type = "🟢 Auto" if obtainable else "🔴 Manual"  # CHANGE: Show type
+        lines.append(f"**#{rank_id}** | **{name}** — {threshold} NP → {role_mention} | {rank_type}")
     
     embed = discord.Embed(title="🏅 Rank System", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
@@ -334,12 +344,7 @@ async def rank_list(interaction: discord.Interaction):
 @app_commands.describe(rank_id="The ID of the rank to remove")
 @is_mod()
 async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Range[int, 1, None]):
-    ranks = database.get_ranks()
-    rank_to_delete = None
-    for rid, rname, threshold, role_id in ranks:
-        if rid == rank_id:
-            rank_to_delete = (rid, rname, threshold, role_id)
-            break
+    rank_to_delete = database.get_rank_by_id(rank_id)  # CHANGE: Use this
     
     if not rank_to_delete:
         await interaction.response.send_message(f"Rank with ID {rank_id} not found.", ephemeral=True)
@@ -354,6 +359,83 @@ async def rank_remove(interaction: discord.Interaction, rank_id: app_commands.Ra
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@rank_group.command(name="promote", description="Manually promote a user to a specific rank")
+@app_commands.describe(user="User to promote", rank_name="Target rank name")
+@is_mod()
+async def rank_promote(interaction: discord.Interaction, user: discord.Member, rank_name: str):
+    await interaction.response.defer(ephemeral=False)
+    
+    # Get target rank
+    target_rank = database.get_rank_by_name(rank_name)
+    if not target_rank:
+        await interaction.followup.send(f"❌ Rank **{rank_name}** not found. Use `/rank list` to see available ranks.", ephemeral=True)
+        return
+    
+    target_rank_id, target_rank_name, target_threshold, target_role_id, target_obtainable = target_rank
+    
+    # Get current rank
+    current_rank_id = database.get_user_rank(user.id)
+    current_rank_data = database.get_rank_by_id(current_rank_id) if current_rank_id else None
+    current_rank_name = current_rank_data[1] if current_rank_data else "None"
+    current_threshold = current_rank_data[2] if current_rank_data else -1
+    
+    # Prevent demotion
+    if target_threshold < current_threshold:
+        embed = discord.Embed(
+            title="❌ Cannot Demote",
+            description=f"{user.mention} is already at **{current_rank_name}** (threshold: {current_threshold} NP)\nCannot promote to a lower rank **{target_rank_name}** (threshold: {target_threshold} NP)",
+            color=discord.Color.red()
+        )
+        apply_galaxy_theme(embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
+    # Update rank in database
+    database.set_user_rank(user.id, target_rank_id)
+    
+    # Remove old rank roles
+    for rank_data in database.get_ranks():
+        old_role = interaction.guild.get_role(rank_data[3])
+        if old_role and old_role in user.roles:
+            try:
+                await user.remove_roles(old_role)
+            except discord.Forbidden:
+                pass
+    
+    # Add new rank role
+    new_role = interaction.guild.get_role(target_role_id)
+    if new_role and new_role not in user.roles:
+        try:
+            await user.add_roles(new_role)
+        except discord.Forbidden:
+            pass
+    
+    # Sync tags
+    await sync_member_tags(user)
+    
+    # Create promotion embed
+    embed = discord.Embed(
+        title="🎉 Manual Promotion!",
+        description=f"{user.mention} has been promoted!",
+        color=discord.Color.gold()
+    )
+    embed.add_field(name="Previous Rank", value=current_rank_name if current_rank_name != "None" else "No rank", inline=True)
+    embed.add_field(name="New Rank", value=target_rank_name, inline=True)
+    embed.add_field(name="Promoted By", value=interaction.user.mention, inline=False)
+    apply_galaxy_theme(embed)
+    
+    # Send to autopromo channel if configured
+    autopromo_channel_id = database.get_config("autopromo_channel_id")
+    if autopromo_channel_id:
+        try:
+            channel = interaction.guild.get_channel(int(autopromo_channel_id))
+            if channel and channel.permissions_for(interaction.guild.me).send_messages:
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Error sending to autopromo channel: {e}")
+    
+    # Also send ephemeral confirmation
+    await interaction.followup.send(embed=embed)
 # ============================================================
 # STARTUP ROLES COMMANDS
 # ============================================================
