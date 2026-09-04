@@ -192,19 +192,6 @@ async def sync_member_tags(member: discord.Member):
 
 config_group = app_commands.Group(name="config", description="Configure bot behavior")
 
-@config_group.command(name="autopromo-channel", description="Set the channel for auto-promotion announcements")
-@app_commands.describe(channel="The channel to send rank-up messages to")
-@is_mod()
-async def config_autopromo_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    database.set_config("autopromo_channel_id", str(channel.id))
-    embed = discord.Embed(
-        title="✅ Auto-Promotion Channel Updated",
-        description=f"Rank-up messages will now be sent to {channel.mention}",
-        color=discord.Color.green()
-    )
-    apply_galaxy_theme(embed)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
 # ============================================================
 # NP COMMANDS
 # ============================================================
