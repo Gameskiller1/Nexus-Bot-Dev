@@ -300,7 +300,7 @@ async def rank_list(interaction: discord.Interaction):
         role = interaction.guild.get_role(role_id)
         role_mention = role.mention if role else f"Unknown Role ({role_id})"
         lines.append(f"**{name}** — {threshold} NP → {role_mention}")
-
+    
     embed = discord.Embed(title="📊 Rank System", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
