@@ -198,6 +198,38 @@ def init_user_ranks_table():
     conn.commit()
     conn.close()
 
+def init_demotion_table():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS promo_locks (
+            user_id INTEGER PRIMARY KEY,
+            locked INTEGER NOT NULL DEFAULT 0,
+            reason TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_promo_lock(user_id: int, locked: bool, reason: str = None):
+    ensure_user(user_id)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO promo_locks (user_id, locked, reason) VALUES (?, ?, ?)",
+        (user_id, 1 if locked else 0, reason)
+    )
+    conn.commit()
+    conn.close()
+
+def is_promo_locked(user_id: int) -> bool:
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT locked FROM promo_locks WHERE user_id = ?", (user_id,))
+    r = c.fetchone()
+    conn.close()
+    return bool(r[0]) if r else False
+
 def set_user_rank(user_id: int, rank_id: int):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -360,3 +392,18 @@ def remove_award(user_id: int, role_id: int) -> bool:
     conn.commit()
     conn.close()
     return success
+
+def set_np(user_id: int, amount: int):
+    ensure_user(user_id)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET np = ? WHERE user_id = ?", (max(amount, 0), user_id))
+    conn.commit()
+    conn.close()
+
+def clear_user_rank(user_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM user_ranks WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()

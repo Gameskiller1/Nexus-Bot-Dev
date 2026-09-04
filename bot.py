@@ -17,6 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 database.init_db()
 database.init_role_tags_table()
 database.init_ranking_table()
+database.init_demotion_table()
 database.init_user_ranks_table()
 database.init_startup_roles_table()
 database.init_award_history_table()
@@ -91,7 +92,9 @@ async def auto_rank_members():
         for member in guild.members:
             if member.bot:
                 continue
-            
+
+                if database.is_promo_locked(member.id):
+                    continue
             np_amount = database.get_np(member.id)
             # CHANGE: Only get ranks marked as auto-obtainable
             rank_info = database.get_appropriate_rank(np_amount, auto_only=True)
@@ -248,6 +251,8 @@ async def stats(interaction: discord.Interaction, user: discord.Member = None):
         if rank_data:
             rank_name = rank_data[1]
 
+    if database.is_promo_locked(target.id):
+        rank_name += " 🔒"
     award_lines = []
     for role_id, np_bonus, awarded_at in awards:
         role = interaction.guild.get_role(role_id)
@@ -436,6 +441,126 @@ async def rank_promote(interaction: discord.Interaction, user: discord.Member, r
     
     # Also send ephemeral confirmation
     await interaction.followup.send(embed=embed)
+
+@rank_group.command(name="demote", description="Demote a user to a lower rank (or remove rank entirely)")
+@app_commands.describe(
+    user="User to demote",
+    rank_name="Target rank name (leave empty to strip all ranks)",
+    clamp_np="Lower their NP to match the new rank so auto-promo won't undo it",
+    lock="Block this user from auto-promotion until unlocked",
+    reason="Reason for the demotion"
+)
+@is_mod()
+async def rank_demote(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    rank_name: str = None,
+    clamp_np: bool = True,
+    lock: bool = False,
+    reason: str = "No reason provided"
+):
+    await interaction.response.defer(ephemeral=False)
+
+    # Current rank
+    current_rank_id = database.get_user_rank(user.id)
+    current_rank_data = database.get_rank_by_id(current_rank_id) if current_rank_id else None
+    current_rank_name = current_rank_data[1] if current_rank_data else "None"
+    current_threshold = current_rank_data[2] if current_rank_data else -1
+
+    target_rank = None
+    if rank_name:
+        target_rank = database.get_rank_by_name(rank_name)
+        if not target_rank:
+            await interaction.followup.send(
+                f"❌ Rank **{rank_name}** not found. Use `/rank list`.", ephemeral=True
+            )
+            return
+
+        t_id, t_name, t_threshold, t_role_id, _ = target_rank
+
+        if current_rank_data and t_threshold >= current_threshold:
+            await interaction.followup.send(
+                f"❌ **{t_name}** is not lower than **{current_rank_name}**. Use `/rank promote` instead.",
+                ephemeral=True
+            )
+            return
+
+    # Strip every rank role first
+    for rank_data in database.get_ranks():
+        old_role = interaction.guild.get_role(rank_data[3])
+        if old_role and old_role in user.roles:
+            try:
+                await user.remove_roles(old_role, reason=f"Demotion: {reason}")
+            except discord.Forbidden:
+                pass
+
+    # Apply new rank, or wipe it
+    if target_rank:
+        t_id, t_name, t_threshold, t_role_id, _ = target_rank
+        database.set_user_rank(user.id, t_id)
+        new_role = interaction.guild.get_role(t_role_id)
+        if new_role:
+            try:
+                await user.add_roles(new_role, reason=f"Demotion: {reason}")
+            except discord.Forbidden:
+                pass
+        new_rank_display = t_name
+        if clamp_np:
+            database.set_np(user.id, t_threshold)
+    else:
+        database.clear_user_rank(user.id)
+        new_rank_display = "No rank"
+        if clamp_np:
+            database.set_np(user.id, 0)
+
+    if lock:
+        database.set_promo_lock(user.id, True, reason)
+
+    await sync_member_tags(user)
+
+    embed = discord.Embed(
+        title="⬇️ Demotion",
+        description=f"{user.mention} has been demoted.",
+        color=discord.Color.dark_red()
+    )
+    embed.add_field(name="Previous Rank", value=current_rank_name, inline=True)
+    embed.add_field(name="New Rank", value=new_rank_display, inline=True)
+    embed.add_field(name="NP", value=f"{database.get_np(user.id)} NP", inline=True)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.add_field(name="Demoted By", value=interaction.user.mention, inline=False)
+    if lock:
+        embed.add_field(name="Auto-Promo", value="🔒 Locked", inline=False)
+    apply_galaxy_theme(embed)
+
+    autopromo_channel_id = database.get_config("autopromo_channel_id")
+    if autopromo_channel_id:
+        try:
+            channel = interaction.guild.get_channel(int(autopromo_channel_id))
+            if channel and channel.permissions_for(interaction.guild.me).send_messages:
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Error sending demotion message: {e}")
+
+    await interaction.followup.send(embed=embed)
+
+
+@rank_group.command(name="unlock", description="Re-allow auto-promotion for a user")
+@app_commands.describe(user="User to unlock")
+@is_mod()
+async def rank_unlock(interaction: discord.Interaction, user: discord.Member):
+    database.set_promo_lock(user.id, False)
+    await interaction.response.send_message(f"🔓 {user.mention} can be auto-promoted again.", ephemeral=True)
+
+async def rank_name_autocomplete(interaction: discord.Interaction, current: str):
+    ranks = database.get_ranks()
+    return [
+        app_commands.Choice(name=f"{r[1]} ({r[2]} NP)", value=r[1])
+        for r in ranks if current.lower() in r[1].lower()
+    ][:25]
+
+rank_promote.autocomplete("rank_name")(rank_name_autocomplete)
+rank_demote.autocomplete("rank_name")(rank_name_autocomplete)
+
 # ============================================================
 # STARTUP ROLES COMMANDS
 # ============================================================
@@ -578,8 +703,6 @@ async def award_remove(interaction: discord.Interaction, user: discord.Member, r
 # ============================================================
 # CONFIG COMMANDS
 # ============================================================
-
-config_group = app_commands.Group(name="config", description="Configure bot settings")
 
 @config_group.command(name="autopromo-channel", description="Set the channel used for auto-promotion messages")
 @app_commands.describe(channel="Channel where rank-up messages should be sent")
