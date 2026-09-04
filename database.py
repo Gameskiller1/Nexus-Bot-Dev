@@ -122,6 +122,10 @@ def init_ranking_table():
         obtainable INTEGER NOT NULL DEFAULT 1
     )
 """)
+    try:
+        c.execute("ALTER TABLE ranks ADD COLUMN obtainable INTEGER NOT NULL DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     
     conn.commit()
     conn.close()
