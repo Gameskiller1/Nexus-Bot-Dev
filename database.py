@@ -182,54 +182,11 @@ def get_user_rank(user_id: int):
     return result[0] if result else None
 
 def delete_rank(rank_id: int):
-    """Delete a rank by ID."""
+    """Delete a rank by ID and clear affected user rank references."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("DELETE FROM user_ranks WHERE current_rank_id = ?", (rank_id,))
     c.execute("DELETE FROM ranks WHERE rank_id = ?", (rank_id,))
-    conn.commit()
-    conn.close()
-
-def remove_award(user_id: int, role_id: int) -> bool:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM user_awards WHERE user_id = ? AND role_id = ?", (user_id, role_id))
-    removed = c.rowcount > 0
-    conn.commit()
-    conn.close()
-    return removed
-
-def init_config_table():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS bot_config (
-            config_key TEXT PRIMARY KEY,
-            config_value TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def set_config(key: str, value: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO bot_config (config_key, config_value) VALUES (?, ?)", (key, value))
-    conn.commit()
-    conn.close()
-
-def get_config(key: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT config_value FROM bot_config WHERE config_key = ?", (key,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else None
-
-def delete_config(key: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM bot_config WHERE config_key = ?", (key,))
     conn.commit()
     conn.close()
 # ============================================================

@@ -20,6 +20,7 @@ database.init_ranking_table()
 database.init_user_ranks_table()
 database.init_startup_roles_table()
 database.init_award_history_table()
+database.init_config_table()
 
 # ============================================================
 # GALAXY THEME CONFIG
@@ -188,7 +189,7 @@ async def np(interaction: discord.Interaction, user: discord.Member, amount: app
         color=discord.Color.green()
     )
     apply_galaxy_theme(embed)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="removenp", description="Remove Nexus Points from a user")
 @app_commands.describe(user="The user to remove NP from", amount="Amount of NP to remove")
@@ -280,9 +281,11 @@ rank_group = app_commands.Group(name="rank", description="Manage ranks and auto-
 @is_mod()
 async def rank_add(interaction: discord.Interaction, name: str, np_threshold: app_commands.Range[int, 0, 1000000], role: discord.Role):
     database.add_rank(name, np_threshold, role.id)
+    ranks = database.get_ranks()
+    created = next((r for r in ranks if r[1] == name), None)
     embed = discord.Embed(
         title="✅ Rank Created",
-        description=f"**{name}** requires **{np_threshold} NP** and grants {role.mention}",
+        description=f"**{name}** requires **{np_threshold} NP** and grants {role.mention}\nRank ID: **{created[0] if created else 'N/A'}**",
         color=discord.Color.green()
     )
     apply_galaxy_theme(embed)
@@ -299,7 +302,7 @@ async def rank_list(interaction: discord.Interaction):
     for rank_id, name, threshold, role_id in ranks:
         role = interaction.guild.get_role(role_id)
         role_mention = role.mention if role else f"Unknown Role ({role_id})"
-        lines.append(f"**{name}** — {threshold} NP → {role_mention}")
+        lines.append(f"**ID {rank_id}** | **{name}** — {threshold} NP → {role_mention}")
     
     embed = discord.Embed(title="📊 Rank System", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
@@ -456,13 +459,30 @@ async def award_remove(interaction: discord.Interaction, user: discord.Member, r
         await interaction.response.send_message("I don't have permission to remove that role.", ephemeral=True)
         return
 
+    removed = database.remove_award(user.id, role.id)
+    if not removed:
+        await interaction.response.send_message("That award was not found in the database.", ephemeral=True)
+        return
     embed = discord.Embed(
         title="✅ Award Removed",
-        description=f"Removed {role.mention} from {user.mention}.",
+        description=f"Removed {role.mention} from {user.mention} and deleted the database record.",
         color=discord.Color.orange()
     )
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
+
+# ============================================================
+# CONFIG COMMANDS
+# ============================================================
+
+config_group = app_commands.Group(name="config", description="Configure bot settings")
+
+@config_group.command(name="autopromo-channel", description="Set the channel used for auto-promotion messages")
+@app_commands.describe(channel="Channel where rank-up messages should be sent")
+@is_mod()
+async def config_autopromo_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    database.set_config("autopromo_channel_id", str(channel.id))
+    await interaction.response.send_message(f"✅ Auto-promotion channel set to {channel.mention}.", ephemeral=True)
 
 # ============================================================
 # TAG COMMANDS
@@ -533,5 +553,6 @@ bot.tree.add_command(tag_group)
 bot.tree.add_command(rank_group)
 bot.tree.add_command(startup_group)
 bot.tree.add_command(award_group)
+bot.tree.add_command(config_group)
 
 bot.run(TOKEN)
