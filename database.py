@@ -182,13 +182,50 @@ def get_user_rank(user_id: int):
     return result[0] if result else None
 
 def delete_rank(rank_id: int):
-    """Delete a rank by ID and clear affected user rank references."""
+    """Delete a rank by ID and clean up user_ranks references."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("DELETE FROM user_ranks WHERE current_rank_id = ?", (rank_id,))
+    # Delete from ranks table
     c.execute("DELETE FROM ranks WHERE rank_id = ?", (rank_id,))
+    # Clear any users who had this rank
+    c.execute("DELETE FROM user_ranks WHERE current_rank_id = ?", (rank_id,))
     conn.commit()
     conn.close()
+
+# ============================================================
+# BOT CONFIGURATION
+# ============================================================
+
+def init_config_table():
+    """Initialize config table for bot settings like autopromo channel."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bot_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_config(key: str, value: str):
+    """Store a config value."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+def get_config(key: str, default: str = None) -> str:
+    """Retrieve a config value."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT value FROM bot_config WHERE key = ?", (key,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else default
+
 # ============================================================
 # STARTUP ROLES
 # ============================================================
@@ -278,3 +315,16 @@ def get_user_awards(user_id: int):
     result = c.fetchall()
     conn.close()
     return result
+
+def remove_award(user_id: int, role_id: int) -> bool:
+    """
+    Remove an award record from the database.
+    Returns True if successfully deleted, False if record didn't exist.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM user_awards WHERE user_id = ? AND role_id = ?", (user_id, role_id))
+    success = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return success

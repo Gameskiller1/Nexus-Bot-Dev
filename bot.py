@@ -125,7 +125,7 @@ async def auto_rank_members():
                 # Sync tags
                 await sync_member_tags(member)
                 
-                # Send rank-up message
+                # Send rank-up message to configured channel
                 try:
                     embed = discord.Embed(
                         title="🎉 Rank Up!",
@@ -134,11 +134,18 @@ async def auto_rank_members():
                     )
                     apply_galaxy_theme(embed)
                     
-                    # Try to find a general or announcements channel
-                    for channel in guild.text_channels:
-                        if channel.permissions_for(guild.me).send_messages:
+                    # Get configured channel
+                    autopromo_channel_id = database.get_config("autopromo_channel_id")
+                    if autopromo_channel_id:
+                        channel = guild.get_channel(int(autopromo_channel_id))
+                        if channel and channel.permissions_for(guild.me).send_messages:
                             await channel.send(embed=embed)
-                            break
+                    else:
+                        # Fallback: find first available text channel
+                        for channel in guild.text_channels:
+                            if channel.permissions_for(guild.me).send_messages:
+                                await channel.send(embed=embed)
+                                break
                 except Exception as e:
                     print(f"Error sending rank-up message: {e}")
 
@@ -172,6 +179,21 @@ async def sync_member_tags(member: discord.Member):
             await member.edit(nick=new_nick)
         except discord.Forbidden:
             pass
+
+config_group = app_commands.Group(name="config", description="Configure bot behavior")
+
+@config_group.command(name="autopromo-channel", description="Set the channel for auto-promotion announcements")
+@app_commands.describe(channel="The channel to send rank-up messages to")
+@is_mod()
+async def config_autopromo_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    database.set_config("autopromo_channel_id", str(channel.id))
+    embed = discord.Embed(
+        title="✅ Auto-Promotion Channel Updated",
+        description=f"Rank-up messages will now be sent to {channel.mention}",
+        color=discord.Color.green()
+    )
+    apply_galaxy_theme(embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ============================================================
 # NP COMMANDS
@@ -302,9 +324,9 @@ async def rank_list(interaction: discord.Interaction):
     for rank_id, name, threshold, role_id in ranks:
         role = interaction.guild.get_role(role_id)
         role_mention = role.mention if role else f"Unknown Role ({role_id})"
-        lines.append(f"**ID {rank_id}** | **{name}** — {threshold} NP → {role_mention}")
+        lines.append(f"**#{rank_id}** | **{name}** — {threshold} NP → {role_mention}")
     
-    embed = discord.Embed(title="📊 Rank System", description="\n".join(lines), color=discord.Color.blurple())
+    embed = discord.Embed(title="🏅 Rank System", description="\n".join(lines), color=discord.Color.blurple())
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
