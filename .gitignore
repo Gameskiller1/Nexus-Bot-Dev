@@ -1,15 +1,19 @@
-# Backups and local database
-backups/
+# Database + snapshots — never in git
 nexus.db
+nexus.db-wal
+nexus.db-shm
 *.db
+*.db.gz
+*.db.corrupt
+*.db.suspicious
+backups/
+logs/
 
-# Environment variables
+# Env / editor
 .env
-
-# Python cache
+*.bak
 __pycache__/
 *.pyc
-.pytest_cache/
-
-# Virtual environment
+.venv/
 venv/
+.vscode/
