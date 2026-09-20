@@ -110,7 +110,7 @@ def strip_tags(name: str) -> str:
     """Remove any existing [tag] prefixes from a name."""
     return TAG_PATTERN.sub("", name).strip()
 
-SKIN_TAG_RE = re.compile(r"^\[(LR|MR|HR)-[^\]]+\]$")  # [LR-...], [MR-...], [HR-...]
+SKIN_TAG_RE = re.compile(r"^\[(LR|MR|AREC)-[^\]]+\]$")  # [LR-...], [MR-...], [AREC-...]
 
 async def sync_member_tags(member: discord.Member):
     """Rebuild a member's nickname based on tags attached to their roles."""
@@ -132,7 +132,7 @@ async def sync_member_tags(member: discord.Member):
             return "[LR-SKINNED]"
         if kind == "MR" and skin_mr:
             return "[MR-SKINNED]"
-        if kind == "HR" and skin_hr:
+        if kind == "AREC" and skin_hr:
             return "[AREC-SKINNED]"
         return t
 
