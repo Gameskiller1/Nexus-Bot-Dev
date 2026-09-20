@@ -133,7 +133,7 @@ async def sync_member_tags(member: discord.Member):
         if kind == "MR" and skin_mr:
             return "[MR-SKINNED]"
         if kind == "HR" and skin_hr:
-            return "[HR-SKINNED]"
+            return "[AREC-SKINNED]"
         return t
 
     tags = [apply_skin_to_tag(t) for t in tags]
@@ -911,12 +911,12 @@ async def award_remove(interaction: discord.Interaction, user: discord.Member, r
 # SKIN COMMANDS
 # ============================================================
 
-@skin_group.command(name="set", description="Skin LR/MR/HR tags in a user's nickname")
+@skin_group.command(name="set", description="Skin LR/MR/AREC tags in a user's nickname")
 @app_commands.describe(
     user="Target member",
     lr="Set LR to SKINNED",
     mr="Set MR to SKINNED",
-    hr="Set HR to SKINNED"
+    hr="Set AREC to SKINNED"
 )
 async def skin_set(
     interaction: discord.Interaction,
