@@ -441,3 +441,85 @@ def remove_award(user_id: int, role_id: int) -> bool:
     with transaction() as conn:
         cur = conn.execute("DELETE FROM user_awards WHERE user_id = ? AND role_id = ?", (user_id, role_id))
         return cur.rowcount > 0
+
+# ============================================================
+# MEMBER SKINS
+# ============================================================
+
+def init_member_skins_table():
+    with transaction() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS member_skins (
+                user_id INTEGER PRIMARY KEY,
+                skinned INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+def set_member_skin(user_id: int, skinned: bool):
+    with transaction() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO member_skins (user_id, skinned) VALUES (?, ?)",
+            (user_id, 1 if skinned else 0),
+        )
+
+def is_member_skinned(user_id: int) -> bool:
+    row = _query("SELECT skinned FROM member_skins WHERE user_id = ?", (user_id,), one=True)
+    return bool(row[0]) if row else False
+
+def init_skin_authorized_roles_table():
+    with transaction() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS skin_authorized_roles (
+                role_id INTEGER PRIMARY KEY
+            )
+        """)
+
+def add_skin_authorized_role(role_id: int):
+    with transaction() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO skin_authorized_roles (role_id) VALUES (?)",
+            (role_id,)
+        )
+
+def remove_skin_authorized_role(role_id: int):
+    with transaction() as conn:
+        conn.execute("DELETE FROM skin_authorized_roles WHERE role_id = ?", (role_id,))
+
+def get_skin_authorized_roles():
+    rows = _query("SELECT role_id FROM skin_authorized_roles")
+    return [r[0] for r in rows]
+
+def init_member_skin_table():
+    with transaction() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS member_skins (
+                user_id INTEGER PRIMARY KEY,
+                skin_lr INTEGER NOT NULL DEFAULT 0,
+                skin_mr INTEGER NOT NULL DEFAULT 0,
+                skin_hr INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+def set_member_skins(user_id: int, skin_lr: bool, skin_mr: bool, skin_hr: bool):
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO member_skins (user_id, skin_lr, skin_mr, skin_hr)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                skin_lr=excluded.skin_lr,
+                skin_mr=excluded.skin_mr,
+                skin_hr=excluded.skin_hr
+            """,
+            (user_id, 1 if skin_lr else 0, 1 if skin_mr else 0, 1 if skin_hr else 0)
+        )
+
+def get_member_skins(user_id: int):
+    row = _query(
+        "SELECT skin_lr, skin_mr, skin_hr FROM member_skins WHERE user_id = ?",
+        (user_id,),
+        one=True
+    )
+    if not row:
+        return (False, False, False)
+    return (bool(row[0]), bool(row[1]), bool(row[2]))

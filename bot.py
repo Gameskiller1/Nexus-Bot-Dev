@@ -57,6 +57,8 @@ database.init_award_history_table()
 database.init_config_table()
 database.init_np_log()
 database.run_migrations()
+database.init_skin_authorized_roles_table()
+database.init_member_skin_table()
 log.info("Database ready: %s", database.DB_FILE)
 
 # ============================================================
@@ -81,6 +83,25 @@ def is_mod():
         return interaction.user.guild_permissions.manage_guild
     return app_commands.check(predicate)
 
+def is_skin_authorized():
+    """Can edit other people's skins."""
+    auth_roles = set(database.get_skin_authorized_roles())
+
+    def predicate(interaction: discord.Interaction) -> bool:
+        member = interaction.user
+        # If you have Manage Roles, allow
+        if member.guild_permissions.manage_roles:
+            return True
+        # Otherwise allow if user has any authorized role
+        return any(r.id in auth_roles for r in member.roles)
+
+    return app_commands.check(predicate)
+
+def is_skin_mod():
+    """Restrict command to users with Manage Roles permission."""
+    def predicate(interaction: discord.Interaction) -> bool:
+        return interaction.user.guild_permissions.manage_roles
+    return app_commands.check(predicate)
 
 TAG_PATTERN = re.compile(r"^(\[.*?\])+\s*")
 
@@ -89,6 +110,7 @@ def strip_tags(name: str) -> str:
     """Remove any existing [tag] prefixes from a name."""
     return TAG_PATTERN.sub("", name).strip()
 
+SKIN_TAG_RE = re.compile(r"^\[(LR|MR|HR)-[^\]]+\]$")  # [LR-...], [MR-...], [HR-...]
 
 async def sync_member_tags(member: discord.Member):
     """Rebuild a member's nickname based on tags attached to their roles."""
@@ -98,6 +120,23 @@ async def sync_member_tags(member: discord.Member):
     role_tags = dict(database.get_all_role_tags())
     member_roles_sorted = sorted(member.roles, key=lambda r: r.position, reverse=True)
     tags = [role_tags[r.id] for r in member_roles_sorted if r.id in role_tags]
+
+    skin_lr, skin_mr, skin_hr = database.get_member_skins(member.id)
+
+    def apply_skin_to_tag(t: str) -> str:
+        m = SKIN_TAG_RE.match(t or "")
+        if not m:
+            return t
+        kind = m.group(1)  # LR / MR / HR
+        if kind == "LR" and skin_lr:
+            return "[LR-SKINNED]"
+        if kind == "MR" and skin_mr:
+            return "[MR-SKINNED]"
+        if kind == "HR" and skin_hr:
+            return "[HR-SKINNED]"
+        return t
+
+    tags = [apply_skin_to_tag(t) for t in tags]
 
     base_name = strip_tags(member.nick or member.display_name)
     new_nick = f"{''.join(tags)} {base_name}" if tags else base_name
@@ -160,10 +199,13 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 
 @tasks.loop(minutes=1)
 async def auto_rank_members():
-    """Auto-promote members who qualify. Never demotes."""
+    """Auto-promote members step-by-step (next ladder rank only). Never demotes."""
     try:
         np_map = database.get_all_np()
         ranks = database.get_ranks()
+
+        # Ensure ladder order by np_threshold ascending
+        ranks = sorted(ranks, key=lambda r: r[2])  # r[2] = np_threshold
         rank_cache = {r[0]: r for r in ranks}
     except Exception:
         log.exception("auto_rank: could not load data")
@@ -171,10 +213,12 @@ async def auto_rank_members():
 
     for guild in bot.guilds:
         me = guild.me or guild.get_member(bot.user.id)
+
         for member in guild.members:
             if member.bot:
                 continue
 
+            # Respect manual lock
             if database.is_promo_locked(member.id):
                 continue
 
@@ -182,31 +226,55 @@ async def auto_rank_members():
             current_rank_id = database.get_user_rank(member.id)
             current_rank_info = rank_cache.get(current_rank_id) if current_rank_id else None
 
-            # Manual-only ranks sit outside the NP ladder
-            if current_rank_info and not current_rank_info[4]:
-                continue
-
-            rank_info = database.get_appropriate_rank(np_amount, auto_only=True)
-            if not rank_info:
-                continue
-
-            rank_id, rank_name, role_id, obtainable = rank_info
-            if current_rank_id == rank_id:
-                continue
-
-            target = rank_cache.get(rank_id)
-            if not target:
-                continue
-
-            new_threshold = target[2]
+            # Determine current position in ladder
             current_threshold = current_rank_info[2] if current_rank_info else -1
-            if new_threshold <= current_threshold:
-                continue  # never auto-demote
 
-            database.set_user_rank(member.id, rank_id)
-            log.info("AUTO-RANK %s (%s) -> %s at %s NP",
-                     member.id, member.display_name, rank_name, np_amount)
+            # If current rank is unknown/None, treat as "before the first rank"
+            idx = -1
+            if current_rank_id is not None:
+                for i, r in enumerate(ranks):
+                    if r[0] == current_rank_id:
+                        idx = i
+                        break
 
+            next_idx = idx + 1
+            if next_idx >= len(ranks):
+                continue  # already at last rank
+
+            next_rank = ranks[next_idx]
+            next_rank_id = next_rank[0]
+            next_rank_name = next_rank[1]
+            next_threshold = next_rank[2]
+            next_role_id = next_rank[3]
+            next_obtainable = next_rank[4]  # 1=auto, 0=manual
+
+            # Never auto-promote into a manual/applications rank
+            if not next_obtainable:
+                continue
+
+            # Need enough NP
+            if np_amount < next_threshold:
+                continue
+
+            # Safety: never demote (should be redundant)
+            if next_threshold <= current_threshold:
+                continue
+
+            # If already on that rank, nothing to do
+            if current_rank_id == next_rank_id:
+                continue
+
+            # --- Apply rank change ---
+            database.set_user_rank(member.id, next_rank_id)
+            log.info(
+                "AUTO-RANK %s (%s) -> %s at %s NP",
+                member.id,
+                member.display_name,
+                next_rank_name,
+                np_amount
+            )
+
+            # Remove any old rank roles (for all configured ranks)
             for rank_data in ranks:
                 old_role = guild.get_role(rank_data[3])
                 if old_role and old_role in member.roles:
@@ -215,19 +283,21 @@ async def auto_rank_members():
                     except discord.Forbidden:
                         log.warning("Cannot remove role %s from %s", old_role.id, member.id)
 
-            new_role = guild.get_role(role_id)
+            # Add the new rank role
+            new_role = guild.get_role(next_role_id)
             if new_role and new_role not in member.roles:
                 try:
                     await member.add_roles(new_role, reason="Auto-rank")
                 except discord.Forbidden:
-                    log.warning("Cannot add role %s to %s", role_id, member.id)
+                    log.warning("Cannot add role %s to %s", next_role_id, member.id)
 
             await sync_member_tags(member)
 
+            # Announcement (unchanged behavior)
             try:
                 embed = discord.Embed(
                     title="🎉 Rank Up!",
-                    description=f"{member.mention} advanced to **{rank_name}**!",
+                    description=f"{member.mention} advanced to **{next_rank_name}**!",
                     color=discord.Color.gold()
                 )
                 apply_galaxy_theme(embed)
@@ -256,6 +326,33 @@ startup_group = app_commands.Group(name="startup-role", description="Manage role
 award_group = app_commands.Group(name="award", description="Give role-based awards")
 config_group = app_commands.Group(name="config", description="Configure bot behavior")
 tag_group = app_commands.Group(name="tag", description="Manage automatic role tags")
+skin_group = app_commands.Group(name="skin", description="Skin LR/MR/HR tags")
+
+
+@skin_group.command(name="allowed-role-add", description="Allow a role to use /skin on others")
+@app_commands.describe(role="Role to authorize")
+@is_mod()
+async def skin_allowed_role_add(interaction: discord.Interaction, role: discord.Role):
+    database.add_skin_authorized_role(role.id)
+    await interaction.response.send_message(f"✅ Authorized: {role.mention}", ephemeral=True)
+
+@skin_group.command(name="allowed-role-remove", description="Remove a role from allowed list")
+@app_commands.describe(role="Role to de-authorize")
+@is_mod()
+async def skin_allowed_role_remove(interaction: discord.Interaction, role: discord.Role):
+    database.remove_skin_authorized_role(role.id)
+    await interaction.response.send_message(f"✅ Removed authorization: {role.mention}", ephemeral=True)
+
+@skin_group.command(name="allowed-roles", description="List roles allowed to skin others")
+async def skin_allowed_roles(interaction: discord.Interaction):
+    ids = database.get_skin_authorized_roles()
+    if not ids:
+        await interaction.response.send_message("No authorized roles configured.", ephemeral=True)
+        return
+    roles = [interaction.guild.get_role(rid) for rid in ids]
+    roles = [r for r in roles if r is not None]
+    msg = "\n".join([r.mention for r in roles]) or "(none)"
+    await interaction.response.send_message(msg, ephemeral=True)
 
 # ============================================================
 # NP COMMANDS
@@ -810,6 +907,45 @@ async def award_remove(interaction: discord.Interaction, user: discord.Member, r
     apply_galaxy_theme(embed)
     await interaction.response.send_message(embed=embed)
 
+# ============================================================
+# SKIN COMMANDS
+# ============================================================
+
+@skin_group.command(name="set", description="Skin LR/MR/HR tags in a user's nickname")
+@app_commands.describe(
+    user="Target member",
+    lr="Set LR to SKINNED",
+    mr="Set MR to SKINNED",
+    hr="Set HR to SKINNED"
+)
+async def skin_set(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    lr: bool = True,
+    mr: bool = False,
+    hr: bool = False
+):
+    # Allow “even myself” without special permissions
+    if interaction.user.id != user.id:
+        # Must be authorized to edit others
+        auth_roles = set(database.get_skin_authorized_roles())
+        if not (
+            interaction.user.guild_permissions.manage_roles
+            or any(r.id in auth_roles for r in interaction.user.roles)
+        ):
+            await interaction.response.send_message(
+                "⛔ You don't have permission to skin other members.",
+                ephemeral=True
+            )
+            return
+
+    database.set_member_skins(user.id, skin_lr=lr, skin_mr=mr, skin_hr=hr)
+    await sync_member_tags(user)
+
+    await interaction.response.send_message(
+        f"✅ Updated skin for {user.mention}: LR={lr}, MR={mr}, HR={hr}",
+        ephemeral=True
+    )
 
 # ============================================================
 # CONFIG COMMANDS
@@ -917,6 +1053,7 @@ bot.tree.add_command(rank_group)
 bot.tree.add_command(startup_group)
 bot.tree.add_command(award_group)
 bot.tree.add_command(config_group)
+bot.tree.add_command(skin_group)
 
 log.info("Starting bot...")
 bot.run(TOKEN, log_handler=None)
