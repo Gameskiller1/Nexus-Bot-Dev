@@ -61,6 +61,9 @@ database.init_skin_authorized_roles_table()
 database.init_member_skin_table()
 log.info("Database ready: %s", database.DB_FILE)
 
+import rayward_integration
+rayward_integration.init_rayward_tables()
+
 # ============================================================
 # GALAXY THEME CONFIG
 # ============================================================
@@ -1055,5 +1058,6 @@ bot.tree.add_command(award_group)
 bot.tree.add_command(config_group)
 bot.tree.add_command(skin_group)
 
+rayward_integration.setup(bot)
 log.info("Starting bot...")
 bot.run(TOKEN, log_handler=None)
