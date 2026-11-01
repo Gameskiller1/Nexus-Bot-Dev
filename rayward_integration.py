@@ -474,7 +474,6 @@ async def _on_app_command_error(interaction: discord.Interaction, error: Excepti
 def setup(bot: commands.Bot):
     if not bot.tree.on_error or bot.tree.on_error is None:
         bot.tree.on_error = _on_app_command_error
-    bot.tree.add_command(rayward_group)
     bot.add_cog(RaywardCog(bot))
 
 
