@@ -58,7 +58,7 @@ database.init_config_table()
 database.init_np_log()
 database.run_migrations()
 database.init_skin_authorized_roles_table()
-database.init_member_skin_table()
+database.init_member_skins_table()
 log.info("Database ready: %s", database.DB_FILE)
 
 import rayward_integration
