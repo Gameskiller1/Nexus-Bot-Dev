@@ -159,7 +159,13 @@ async def on_ready():
     if not auto_rank_members.is_running():
         auto_rank_members.start()
 
-
+@bot.command()
+@commands.is_owner()
+async def clear_commands(ctx):
+    """Clear all application commands from Discord"""
+    await bot.tree.sync()
+    await ctx.send("✅ Commands cleared and synced!")
+    
 @bot.event
 async def on_member_join(member: discord.Member):
     """Assign startup roles when member joins."""
