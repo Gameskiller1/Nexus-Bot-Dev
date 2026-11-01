@@ -163,8 +163,9 @@ async def on_ready():
 @commands.is_owner()
 async def clear_commands(interaction: discord.Interaction):
     """Clear all application commands from Discord"""
+    await interaction.response.defer(ephemeral=True)
     await bot.tree.sync()
-    await interaction.response.send_message("✅ Commands cleared and synced!", ephemeral=True)
+    await interaction.followup.send("✅ Commands cleared and synced!", ephemeral=True)
 
 @bot.event
 async def on_member_join(member: discord.Member):
