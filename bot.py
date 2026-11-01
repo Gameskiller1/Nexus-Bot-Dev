@@ -1059,6 +1059,8 @@ bot.tree.on_error = on_app_command_error
 # ADD COMMAND GROUPS
 # ============================================================
 
+rayward_integration.setup(bot)
+
 bot.tree.add_command(tag_group)
 bot.tree.add_command(rank_group)
 bot.tree.add_command(startup_group)
@@ -1066,6 +1068,5 @@ bot.tree.add_command(award_group)
 bot.tree.add_command(config_group)
 bot.tree.add_command(skin_group)
 
-rayward_integration.setup(bot)
 log.info("Starting bot...")
 bot.run(TOKEN, log_handler=None)
