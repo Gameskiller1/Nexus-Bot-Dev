@@ -43,6 +43,10 @@ def init_rayward_tables():
             )
         """)
 
+rayward_group = app_commands.Group(
+    name="rayward",
+    description="Rayward / Rotector moderation tools"
+)
 
 def _guild_id(interaction_or_member) -> int:
     guild = getattr(interaction_or_member, "guild", None)
@@ -265,18 +269,8 @@ class RaywardPanelView(discord.ui.View):
 class RaywardCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.group = app_commands.Group(name="rayward", description="Rayward / Rotector moderation tools")
 
-    def cog_load(self):
-        self.bot.tree.add_command(self.group)
-
-    def cog_unload(self):
-        try:
-            self.bot.tree.remove_command(self.group.name, type=self.group.type)
-        except Exception:
-            pass
-
-    @app_commands.command(name="panel", description="Open the Rayward staff panel")
+    @rayward_group.command(name="panel", description="Open the Rayward staff panel")
     @rayward_access_check()
     async def panel(self, interaction: discord.Interaction):
         embed = discord.Embed(
@@ -295,20 +289,20 @@ class RaywardCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, view=RaywardPanelView(), ephemeral=True)
 
-    @app_commands.command(name="access-role-set", description="Set the role allowed to use Rayward commands")
+    @rayward_group.command(name="access-role-set", description="Set the role allowed to use Rayward commands")
     @app_commands.describe(role="Role that may use Rayward commands")
     @rayward_access_check()
     async def access_role_set(self, interaction: discord.Interaction, role: discord.Role):
         _set_setting(interaction.guild.id, "access_role_id", str(role.id))
         await interaction.response.send_message(f"✅ Rayward access role set to {role.mention}", ephemeral=True)
 
-    @app_commands.command(name="access-role-clear", description="Clear the Rayward access role")
+    @rayward_group.command(name="access-role-clear", description="Clear the Rayward access role")
     @rayward_access_check()
     async def access_role_clear(self, interaction: discord.Interaction):
         _set_setting(interaction.guild.id, "access_role_id", "")
         await interaction.response.send_message("✅ Rayward access role cleared", ephemeral=True)
 
-    @app_commands.command(name="access-role-view", description="View the Rayward access role")
+    @rayward_group.command(name="access-role-view", description="View the Rayward access role")
     @rayward_access_check()
     async def access_role_view(self, interaction: discord.Interaction):
         rid = _get_setting(interaction.guild.id, "access_role_id", "")
@@ -321,20 +315,20 @@ class RaywardCog(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="alerts-channel-set", description="Set the channel where flagged joins are posted")
+    @rayward_group.command(name="alerts-channel-set", description="Set the channel where flagged joins are posted")
     @app_commands.describe(channel="Channel for join alerts")
     @rayward_access_check()
     async def alerts_channel_set(self, interaction: discord.Interaction, channel: discord.TextChannel):
         _set_setting(interaction.guild.id, "alerts_channel_id", str(channel.id))
         await interaction.response.send_message(f"✅ Join alert channel set to {channel.mention}", ephemeral=True)
 
-    @app_commands.command(name="alerts-channel-clear", description="Clear the join alert channel")
+    @rayward_group.command(name="alerts-channel-clear", description="Clear the join alert channel")
     @rayward_access_check()
     async def alerts_channel_clear(self, interaction: discord.Interaction):
         _set_setting(interaction.guild.id, "alerts_channel_id", "")
         await interaction.response.send_message("✅ Join alert channel cleared", ephemeral=True)
 
-    @app_commands.command(name="alerts-channel-view", description="View the join alert channel")
+    @rayward_group.command(name="alerts-channel-view", description="View the join alert channel")
     @rayward_access_check()
     async def alerts_channel_view(self, interaction: discord.Interaction):
         cid = _get_setting(interaction.guild.id, "alerts_channel_id", "")
@@ -347,7 +341,7 @@ class RaywardCog(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="user", description="Check a Roblox user ID against Rotector")
+    @rayward_group.command(name="user", description="Check a Roblox user ID against Rotector")
     @app_commands.describe(user_id="Roblox user ID", exclude_info="Hide evidence/details")
     @rayward_access_check()
     async def user_lookup(self, interaction: discord.Interaction, user_id: str, exclude_info: bool = True):
@@ -364,7 +358,7 @@ class RaywardCog(commands.Cog):
         else:
             await interaction.followup.send(content="Rotector source used. Review manually before acting.", embed=embed, ephemeral=True)
 
-    @app_commands.command(name="group", description="Check a Roblox group ID against Rotector")
+    @rayward_group.command(name="group", description="Check a Roblox group ID against Rotector")
     @app_commands.describe(group_id="Roblox group ID", exclude_info="Hide evidence/details")
     @rayward_access_check()
     async def group_lookup(self, interaction: discord.Interaction, group_id: str, exclude_info: bool = True):
@@ -378,7 +372,7 @@ class RaywardCog(commands.Cog):
         embed = _embed_from_payload("Roblox Group", str(group_id), data, "Rotector")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="discord", description="Check a Discord user ID against Rotector")
+    @rayward_group.command(name="discord", description="Check a Discord user ID against Rotector")
     @app_commands.describe(discord_id="Discord snowflake ID", exclude_info="Hide evidence/details")
     @rayward_access_check()
     async def discord_lookup(self, interaction: discord.Interaction, discord_id: str, exclude_info: bool = True):
@@ -392,7 +386,7 @@ class RaywardCog(commands.Cog):
         embed = _embed_from_payload("Discord User", str(discord_id), data, "Rotector")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="providers", description="List Rayward enabled sources")
+    @rayward_group.command(name="providers", description="List Rayward enabled sources")
     @rayward_access_check()
     async def providers(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -417,7 +411,7 @@ class RaywardCog(commands.Cog):
         embed = discord.Embed(title="Rayward Providers", description=txt[:4000], color=discord.Color.blurple())
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="cached", description="Show cached flagged results for a subject")
+    @rayward_group.command(name="cached", description="Show cached flagged results for a subject")
     @app_commands.describe(subject_type="roblox_user, roblox_group, or discord_user", subject_id="ID to inspect")
     @rayward_access_check()
     async def cached(self, interaction: discord.Interaction, subject_type: str, subject_id: str):
@@ -480,4 +474,7 @@ async def _on_app_command_error(interaction: discord.Interaction, error: Excepti
 def setup(bot: commands.Bot):
     if not bot.tree.on_error or bot.tree.on_error is None:
         bot.tree.on_error = _on_app_command_error
+    bot.tree.add_command(rayward_group)
     bot.add_cog(RaywardCog(bot))
+
+
