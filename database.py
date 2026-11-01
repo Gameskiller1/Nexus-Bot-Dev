@@ -446,22 +446,6 @@ def remove_award(user_id: int, role_id: int) -> bool:
 # MEMBER SKINS
 # ============================================================
 
-def init_member_skins_table():
-    with transaction() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS member_skins (
-                user_id INTEGER PRIMARY KEY,
-                skinned INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-
-def set_member_skin(user_id: int, skinned: bool):
-    with transaction() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO member_skins (user_id, skinned) VALUES (?, ?)",
-            (user_id, 1 if skinned else 0),
-        )
-
 def is_member_skinned(user_id: int) -> bool:
     row = _query("SELECT skinned FROM member_skins WHERE user_id = ?", (user_id,), one=True)
     return bool(row[0]) if row else False
@@ -489,7 +473,7 @@ def get_skin_authorized_roles():
     rows = _query("SELECT role_id FROM skin_authorized_roles")
     return [r[0] for r in rows]
 
-def init_member_skin_table():
+def init_member_skins_table():
     with transaction() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS member_skins (
