@@ -103,11 +103,17 @@ async def _api_request(path: str, *, method="GET", json_body=None):
         "Accept": "application/json",
     }
     
+    full_url = f"{RAYWARD_BASE_URL}{path}"
+    
+    # DEBUG LOGGING
+    log.info(f"Rayward Request: {method} {full_url}")
+    log.info(f"Auth header: Bearer {RAYWARD_API_KEY[:10]}...")  # Only show first 10 chars
+    
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.request(
                 method, 
-                f"{RAYWARD_BASE_URL}{path}", 
+                full_url, 
                 json=json_body, 
                 timeout=aiohttp.ClientTimeout(total=20)
             ) as resp:
