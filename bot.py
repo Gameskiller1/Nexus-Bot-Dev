@@ -159,13 +159,13 @@ async def on_ready():
     if not auto_rank_members.is_running():
         auto_rank_members.start()
 
-@bot.command()
+@bot.tree.command(name="clear_commands", description="Force resync all slash commands")
 @commands.is_owner()
-async def clear_commands(ctx):
+async def clear_commands(interaction: discord.Interaction):
     """Clear all application commands from Discord"""
     await bot.tree.sync()
-    await ctx.send("✅ Commands cleared and synced!")
-    
+    await interaction.response.send_message("✅ Commands cleared and synced!", ephemeral=True)
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """Assign startup roles when member joins."""
