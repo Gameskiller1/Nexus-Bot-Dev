@@ -155,7 +155,6 @@ async def sync_member_tags(member: discord.Member):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    bot.tree._get_overrides.cache_clear() if hasattr(bot.tree._get_overrides, 'cache_clear') else None
     log.info("Logged in as %s - slash commands synced.", bot.user)
     if not auto_rank_members.is_running():
         auto_rank_members.start()
